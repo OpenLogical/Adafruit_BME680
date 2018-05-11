@@ -30,7 +30,7 @@
 #endif
 #include <Wire.h>
 #include <SPI.h>
-#include <Adafruit_Sensor.h>
+//#include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include "bme680.h"
 
@@ -89,6 +89,7 @@ class Adafruit_BME680
     bool setGasHeater(uint16_t heaterTemp, uint16_t heaterTime);
 
     bool performReading(void);
+    char performReadingNB(void);
 
     /// Temperature (Celsius) assigned after calling performReading()
     float temperature;
@@ -104,6 +105,7 @@ class Adafruit_BME680
     uint8_t _i2caddr;
     int32_t _sensorID;
     int8_t _cs;
+    char readingStatus;
 
     uint8_t spixfer(uint8_t x);
 

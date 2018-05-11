@@ -127,14 +127,14 @@ bool Adafruit_BME680::begin(uint8_t addr) {
   }
 
   gas_sensor.delay_ms = delay_msec;
-
+  readingStatus = 0;
   int8_t rslt = BME680_OK;
   rslt = bme680_init(&gas_sensor);
 #ifdef BME680_DEBUG
   Serial.print("Result: "); Serial.println(rslt);
 #endif
 
-  if (rslt != BME680_OK) 
+  if (rslt != BME680_OK)
     return false;
 
 #ifdef BME680_DEBUG
@@ -174,7 +174,7 @@ bool Adafruit_BME680::begin(uint8_t addr) {
   setPressureOversampling(BME680_OS_4X);
   setIIRFilterSize(BME680_FILTER_SIZE_3);
   setGasHeater(320, 150); // 320*C for 150 ms
-  
+
   // don't do anything till we request a reading
   gas_sensor.power_mode = BME680_FORCED_MODE;
 
@@ -220,7 +220,7 @@ float Adafruit_BME680::readHumidity(void) {
 
 /**************************************************************************/
 /*!
-    @brief Calculates the resistance of the MOX gas sensor. 
+    @brief Calculates the resistance of the MOX gas sensor.
     @return Resistance in Ohms
 */
 /**************************************************************************/
@@ -232,7 +232,7 @@ uint32_t Adafruit_BME680::readGas(void) {
 
 /**************************************************************************/
 /*!
-    @brief Calculates the altitude (in meters). 
+    @brief Calculates the altitude (in meters).
 
     Reads the current atmostpheric pressure (in hPa) from the sensor and calculates
     via the provided sea-level pressure (in hPa).
@@ -256,12 +256,128 @@ float Adafruit_BME680::readAltitude(float seaLevel)
 
 /**************************************************************************/
 /*!
-    @brief Performs a full reading of all 4 sensors in the BME680. 
+    @brief Performs a full reading of all 4 sensors in the BME680.
 
-    Assigns the internal Adafruit_BME680#temperature, Adafruit_BME680#pressure, Adafruit_BME680#humidity 
+    Assigns the internal Adafruit_BME680#temperature, Adafruit_BME680#pressure, Adafruit_BME680#humidity
     and Adafruit_BME680#gas_resistance member variables
 
     @return True on success, False on failure
+*/
+/**************************************************************************/
+char Adafruit_BME680::performReadingNB (void) {
+  uint8_t set_required_settings = 0;
+  struct bme680_field_data data;
+  int8_t rslt;
+
+  switch (readingStatus) //setup for reading
+  {
+      case 0:
+          /* Select the power mode */
+          /* Must be set before writing the sensor configuration */
+          gas_sensor.power_mode = BME680_FORCED_MODE;
+
+          /* Set the required sensor settings needed */
+          if (_tempEnabled)
+            set_required_settings |= BME680_OST_SEL;
+          if (_humEnabled)
+            set_required_settings |= BME680_OSH_SEL;
+          if (_presEnabled)
+            set_required_settings |= BME680_OSP_SEL;
+          if (_filterEnabled)
+            set_required_settings |= BME680_FILTER_SEL;
+          if (_gasEnabled)
+            set_required_settings |= BME680_GAS_SENSOR_SEL;
+
+          /* Set the desired sensor configuration */
+        #ifdef BME680_DEBUG
+          Serial.println("Setting sensor settings");
+        #endif
+          rslt = bme680_set_sensor_settings(set_required_settings, &gas_sensor);
+          if (rslt != BME680_OK)
+            return 0;
+
+          /* Set the power mode */
+        #ifdef BME680_DEBUG
+          Serial.println("Setting power mode");
+        #endif
+          rslt = bme680_set_sensor_mode(&gas_sensor);
+          if (rslt != BME680_OK)
+            return 0;
+
+          /* Get the total measurement duration so as to sleep or wait till the
+           * measurement is complete */
+          //uint16_t meas_period;
+          //bme680_get_profile_dur(&meas_period, &gas_sensor);
+        //#ifdef BME680_DEBUG
+        //  Serial.print("Waiting (ms) "); Serial.println(meas_period);
+        //#endif
+        readingStatus=1; //switch to waiting mode
+        return 2;
+    break;
+
+    case 1:
+        rslt = bme680_get_sensor_data(&data, &gas_sensor);
+        if (rslt != BME680_OK)
+            return 2;//WARNING SENSOR MAY BE STUCK IN THIS STAGE (NEED A DIFFERENT METHOD)
+
+        if (_tempEnabled) {
+        //Serial.print("Temp: "); Serial.println(data.temperature / 100.0, 2);
+            temperature = data.temperature / 100.0;
+        } else {
+            temperature = NAN;
+          }
+
+        if (_humEnabled) {
+            //Serial.print("Hum:  "); Serial.println(data.humidity / 1000.0, 2);
+            humidity = data.humidity / 1000.0;
+        } else {
+            humidity = NAN;
+        }
+        if (_presEnabled) {
+            //Serial.print("Pres: "); Serial.println(data.pressure / 100.0, 2);
+            pressure = data.pressure;
+        } else {
+            pressure = NAN;
+        }
+
+          /* Avoid using measurements from an unstable heating setup */
+        if (_gasEnabled) {
+            if (data.status & BME680_HEAT_STAB_MSK) {
+              //Serial.print("Gas resistance: "); Serial.println(data.gas_resistance);
+              gas_resistance = data.gas_resistance;
+            } else {
+              gas_resistance = 0;
+              //Serial.println("Gas reading unstable!");
+            }
+        }
+        readingStatus = 0;
+        return 1;
+    break;
+    default:
+        return 0;
+    break;
+
+  }
+
+  ///delay(meas_period * 2); /* Delay till the measurement is ready *}
+
+  //#ifdef BME680_DEBUG
+  //Serial.print("t_fine = "); Serial.println(gas_sensor.calib.t_fine);
+  //#endif
+
+  //Serial.println("Getting sensor data");
+}
+
+
+/**************************************************************************/
+/*!
+    @brief Performs a full reading of all 4 sensors in the BME680 (non-blocking)
+
+    Assigns the internal Adafruit_BME680#temperature, Adafruit_BME680#pressure, Adafruit_BME680#humidity
+    and Adafruit_BME680#gas_resistance member variables
+
+
+    @return 0 = failure, 1 = success, 2 = waiting for data
 */
 /**************************************************************************/
 bool Adafruit_BME680::performReading(void) {
@@ -282,7 +398,7 @@ bool Adafruit_BME680::performReading(void) {
     set_required_settings |= BME680_OSP_SEL;
   if (_filterEnabled)
     set_required_settings |= BME680_FILTER_SEL;
-  if (_gasEnabled) 
+  if (_gasEnabled)
     set_required_settings |= BME680_GAS_SENSOR_SEL;
 
   /* Set the desired sensor configuration */
@@ -290,15 +406,15 @@ bool Adafruit_BME680::performReading(void) {
   Serial.println("Setting sensor settings");
 #endif
   rslt = bme680_set_sensor_settings(set_required_settings, &gas_sensor);
-  if (rslt != BME680_OK) 
+  if (rslt != BME680_OK)
     return false;
-  
+
   /* Set the power mode */
 #ifdef BME680_DEBUG
   Serial.println("Setting power mode");
 #endif
   rslt = bme680_set_sensor_mode(&gas_sensor);
-  if (rslt != BME680_OK) 
+  if (rslt != BME680_OK)
     return false;
 
   /* Get the total measurement duration so as to sleep or wait till the
@@ -309,14 +425,14 @@ bool Adafruit_BME680::performReading(void) {
   Serial.print("Waiting (ms) "); Serial.println(meas_period);
 #endif
   delay(meas_period * 2); /* Delay till the measurement is ready */
-  
+
 #ifdef BME680_DEBUG
   Serial.print("t_fine = "); Serial.println(gas_sensor.calib.t_fine);
 #endif
 
   //Serial.println("Getting sensor data");
   rslt = bme680_get_sensor_data(&data, &gas_sensor);
-  if (rslt != BME680_OK) 
+  if (rslt != BME680_OK)
     return false;
 
   if (_tempEnabled) {
@@ -354,6 +470,9 @@ bool Adafruit_BME680::performReading(void) {
   return true;
 }
 
+
+
+
 /**************************************************************************/
 /*!
     @brief  Enable and configure gas reading + heater
@@ -381,7 +500,7 @@ bool Adafruit_BME680::setGasHeater(uint16_t heaterTemp, uint16_t heaterTime) {
 /**************************************************************************/
 /*!
     @brief  Setter for Temperature oversampling
-    @param  oversample Oversampling setting, can be BME680_OS_NONE (turn off Temperature reading), 
+    @param  oversample Oversampling setting, can be BME680_OS_NONE (turn off Temperature reading),
     BME680_OS_1X, BME680_OS_2X, BME680_OS_4X, BME680_OS_8X or BME680_OS_16X
     @return True on success, False on failure
 */
@@ -404,7 +523,7 @@ bool Adafruit_BME680::setTemperatureOversampling(uint8_t oversample) {
 /**************************************************************************/
 /*!
     @brief  Setter for Humidity oversampling
-    @param  oversample Oversampling setting, can be BME680_OS_NONE (turn off Humidity reading), 
+    @param  oversample Oversampling setting, can be BME680_OS_NONE (turn off Humidity reading),
     BME680_OS_1X, BME680_OS_2X, BME680_OS_4X, BME680_OS_8X or BME680_OS_16X
     @return True on success, False on failure
 */
@@ -427,7 +546,7 @@ bool Adafruit_BME680::setHumidityOversampling(uint8_t oversample) {
 /**************************************************************************/
 /*!
     @brief  Setter for Pressure oversampling
-    @param  oversample Oversampling setting, can be BME680_OS_NONE (turn off Pressure reading), 
+    @param  oversample Oversampling setting, can be BME680_OS_NONE (turn off Pressure reading),
     BME680_OS_1X, BME680_OS_2X, BME680_OS_4X, BME680_OS_8X or BME680_OS_16X
     @return True on success, False on failure
 */
@@ -450,7 +569,7 @@ bool Adafruit_BME680::setPressureOversampling(uint8_t oversample) {
     @brief  Setter for IIR filter.
     @param filtersize Size of the filter (in samples). Can be BME680_FILTER_SIZE_0 (no filtering), BME680_FILTER_SIZE_1, BME680_FILTER_SIZE_3, BME680_FILTER_SIZE_7, BME680_FILTER_SIZE_15, BME680_FILTER_SIZE_31, BME680_FILTER_SIZE_63, BME680_FILTER_SIZE_127
     @return True on success, False on failure
-    
+
 */
 /**************************************************************************/
 bool Adafruit_BME680::setIIRFilterSize(uint8_t filtersize) {
