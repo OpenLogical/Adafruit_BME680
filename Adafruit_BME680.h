@@ -65,7 +65,7 @@ public:
 
 */
 
-/** Adafruit_BME680 Class for both I2C and SPI usage. 
+/** Adafruit_BME680 Class for both I2C and SPI usage.
  *  Wraps the Bosch library for Arduino usage
  */
 
@@ -90,9 +90,9 @@ class Adafruit_BME680
 
     bool performReading(void);
 
-    /// Temperature (Celsius) assigned after calling performReading() 
-    float temperature;  
-    /// Pressure (Pascals) assigned after calling performReading() 
+    /// Temperature (Celsius) assigned after calling performReading()
+    float temperature;
+    /// Pressure (Pascals) assigned after calling performReading()
     float pressure;
     /// Humidity (RH %) assigned after calling performReading()
     float humidity;
@@ -111,3 +111,4 @@ class Adafruit_BME680
 };
 
 #endif
+//test
